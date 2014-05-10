@@ -14,7 +14,13 @@ import (
 
 // NewRouter returns a new router instance.
 func NewRouter() *Router {
-	return &Router{namedRoutes: make(map[string]*Route), KeepContext: false}
+	return &Router{
+		namedRoutes: make(map[string]*Route),
+
+		// Preserve original behaviour
+		VarsHandler:  GlobalVarsHandler{},
+		RouteHandler: GlobalRouteHandler{},
+	}
 }
 
 // Router registers routes to be matched and dispatches a handler.
@@ -48,6 +54,64 @@ type Router struct {
 	strictSlash bool
 	// If true, do not clear the request context after handling the request
 	KeepContext bool
+
+	// VarsHandler is called with the vars that match a request.
+	// The default handler is GlobalVarsHandler.
+	VarsHandler VarsHandler
+
+	// RouteHandler is the handler that's called with the route that matches a request.
+	// The default handler is GlobalRouteHandler.
+	RouteHandler RouteHandler
+}
+
+type VarsHandler interface {
+	SetVars(*http.Request, map[string]string)
+}
+
+// GlobalVarsHandler is the original mux router vars behaviour.
+// It writes vars to a global context. The vars can be retrieved by calling mux.Vars(req)
+type GlobalVarsHandler struct{}
+
+func (h GlobalVarsHandler) SetVars(req *http.Request, vars map[string]string) {
+	context.Set(req, varsKey, vars)
+}
+
+// FormVarsHandler is a VarsHandler which places mux vars on to the request.Form field.
+type FormVarsHandler struct {
+	// If Replace is true, existing form values are replaced.
+	// By default, values are appended to existing keys.
+	Replace bool
+}
+
+func (h FormVarsHandler) SetVars(req *http.Request, vars map[string]string) {
+	if h.Replace {
+		for k, v := range vars {
+			req.Form.Set(k, v)
+		}
+	} else {
+		for k, v := range vars {
+			req.Form.Add(k, v)
+		}
+	}
+}
+
+type RouteHandler interface {
+	SetCurrentRoute(*http.Request, *Route)
+}
+
+// GlobalRouteHandler is the original mux route behaviour.
+// It stores the route for a request in the global context.
+// The route can be retrieved by calling mux.CurrentRoute(req)
+type GlobalRouteHandler struct{}
+
+func (h GlobalRouteHandler) SetCurrentRoute(req *http.Request, route *Route) {
+	context.Set(req, routeKey, route)
+}
+
+type FormRouteHandler struct{}
+
+func (h FormRouteHandler) SetCurrentRoute(req *http.Request, route *Route) {
+	req.Form.Add("gorilla_route", route.name)
 }
 
 // Match matches registered routes against the request.
@@ -69,7 +133,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if p := cleanPath(req.URL.Path); p != req.URL.Path {
 
 		// Added 3 lines (Philip Schlump) - It was droping the query string and #whatever from query.
-		// This matches with fix in go 1.2 r.c. 4 for same problem.  Go Issue: 
+		// This matches with fix in go 1.2 r.c. 4 for same problem.  Go Issue:
 		// http://code.google.com/p/go/issues/detail?id=5252
 		url := *req.URL
 		url.Path = p
@@ -83,8 +147,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var handler http.Handler
 	if r.Match(req, &match) {
 		handler = match.Handler
-		setVars(req, match.Vars)
-		setCurrentRoute(req, match.Route)
+		r.VarsHandler.SetVars(req, match.Vars)
+		r.RouteHandler.SetCurrentRoute(req, match.Route)
 	}
 	if handler == nil {
 		if r.NotFoundHandler == nil {
@@ -237,6 +301,7 @@ const (
 )
 
 // Vars returns the route variables for the current request, if any.
+// This function is mostly useful if the router uses GlobalVarsHandler.
 func Vars(r *http.Request) map[string]string {
 	if rv := context.Get(r, varsKey); rv != nil {
 		return rv.(map[string]string)
@@ -245,19 +310,12 @@ func Vars(r *http.Request) map[string]string {
 }
 
 // CurrentRoute returns the matched route for the current request, if any.
+// This function is mostly useful if the router uses GlobalRouteHandler.
 func CurrentRoute(r *http.Request) *Route {
 	if rv := context.Get(r, routeKey); rv != nil {
 		return rv.(*Route)
 	}
 	return nil
-}
-
-func setVars(r *http.Request, val interface{}) {
-	context.Set(r, varsKey, val)
-}
-
-func setCurrentRoute(r *http.Request, val interface{}) {
-	context.Set(r, routeKey, val)
 }
 
 // ----------------------------------------------------------------------------
