@@ -151,35 +151,42 @@ func (r *Route) addRegexpMatcher(tpl string, matchHost, matchPrefix, matchQuery 
 			tpl = strings.TrimRight(r.regexp.path.template, "/") + tpl
 		}
 	}
-	rr, err := newRouteRegexp(tpl, matchHost, matchPrefix, matchQuery, r.strictSlash)
+	rr, err := newRouteRegexp(tpl, matchHost, matchPrefix, r.strictSlash)
 	if err != nil {
 		return err
 	}
+	if err := r.ensureUniqueVars(rr); err != nil {
+		return err
+	}
+	r.addMatcher(rr)
+	return nil
+}
+
+func (r *Route) ensureUniqueVars(rr *routeRegexp) error {
 	for _, q := range r.regexp.queries {
-		if err = uniqueVars(rr.varsN, q.varsN); err != nil {
+		if err := uniqueVars(rr.varsN, q.varsN); err != nil {
 			return err
 		}
 	}
-	if matchHost {
+	if rr.matchHost {
 		if r.regexp.path != nil {
-			if err = uniqueVars(rr.varsN, r.regexp.path.varsN); err != nil {
+			if err := uniqueVars(rr.varsN, r.regexp.path.varsN); err != nil {
 				return err
 			}
 		}
 		r.regexp.host = rr
 	} else {
 		if r.regexp.host != nil {
-			if err = uniqueVars(rr.varsN, r.regexp.host.varsN); err != nil {
+			if err := uniqueVars(rr.varsN, r.regexp.host.varsN); err != nil {
 				return err
 			}
 		}
-		if matchQuery {
+		if rr.matchQuery {
 			r.regexp.queries = append(r.regexp.queries, rr)
 		} else {
 			r.regexp.path = rr
 		}
 	}
-	r.addMatcher(rr)
 	return nil
 }
 
@@ -367,10 +374,21 @@ func (r *Route) Queries(pairs ...string) *Route {
 			"mux: number of parameters must be multiple of 2, got %v", pairs)
 		return nil
 	}
+	r.regexp = r.getRegexpGroup()
 	for i := 0; i < length; i += 2 {
-		if r.err = r.addRegexpMatcher(pairs[i]+"="+pairs[i+1], false, false, true); r.err != nil {
+		var rr *routeRegexp
+		rr, err := newQueryRegexp(pairs[i], pairs[i+1])
+		if err != nil {
+			r.err = err
 			return r
 		}
+		err = r.ensureUniqueVars(rr)
+		if err != nil {
+			r.err = err
+			return r
+		}
+		r.regexp.queries = append(r.regexp.queries, rr)
+		r.addMatcher(rr)
 	}
 
 	return r

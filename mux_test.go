@@ -5,13 +5,23 @@
 package mux
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/gorilla/context"
 )
+
+var testPatternStr = flag.String("muxtest.run", ".*", "Regexp pattern of test cases to run")
+var testPattern *regexp.Regexp
+
+func init() {
+	flag.Parse()
+	testPattern = regexp.MustCompile(*testPatternStr)
+}
 
 func (r *Route) GoString() string {
 	matchers := make([]string, len(r.matchers))
@@ -34,6 +44,14 @@ type routeTest struct {
 	path           string            // the expected path of the match
 	shouldMatch    bool              // whether the request is expected to match the route at all
 	shouldRedirect bool              // whether the request should result in a redirect
+}
+
+func runTests(t *testing.T, tests []routeTest) {
+	for _, test := range tests {
+		if testPattern.MatchString(test.title) {
+			testRoute(t, test)
+		}
+	}
 }
 
 func TestHost(t *testing.T) {
@@ -102,7 +120,17 @@ func TestHost(t *testing.T) {
 			path:        "",
 			shouldMatch: false,
 		},
-		// BUG {new(Route).Host("aaa.bbb.ccc:1234"), newRequestHost("GET", "/111/222/333", "aaa.bbb.ccc:1234"), map[string]string{}, "aaa.bbb.ccc:1234", "", true},
+		/* BUG: Port is currently stripped in getHost so this doesn't match.
+		{
+			title:       "Host route with port",
+			route:       new(Route).Host("aaa.bbb.ccc:1234"),
+			request:     newRequestHost("GET", "/111/222/333", "aaa.bbb.ccc:1234"),
+			vars:        map[string]string{},
+			host:        "aaa.bbb.ccc:1234",
+			path:        "",
+			shouldMatch: true,
+		},
+		*/
 		{
 			title:       "Host route with port, wrong host in request header",
 			route:       new(Route).Host("aaa.bbb.ccc:1234"),
@@ -221,9 +249,7 @@ func TestHost(t *testing.T) {
 			shouldMatch: true,
 		},
 	}
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+	runTests(t, tests)
 }
 
 func TestPath(t *testing.T) {
@@ -347,9 +373,7 @@ func TestPath(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+	runTests(t, tests)
 }
 
 func TestPathPrefix(t *testing.T) {
@@ -419,9 +443,7 @@ func TestPathPrefix(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+	runTests(t, tests)
 }
 
 func TestHostPath(t *testing.T) {
@@ -482,9 +504,7 @@ func TestHostPath(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+	runTests(t, tests)
 }
 
 func TestHeaders(t *testing.T) {
@@ -539,9 +559,7 @@ func TestHeaders(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+	runTests(t, tests)
 
 }
 
@@ -576,9 +594,7 @@ func TestMethods(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+	runTests(t, tests)
 }
 
 func TestQueries(t *testing.T) {
@@ -801,9 +817,7 @@ func TestQueries(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+	runTests(t, tests)
 }
 
 func TestSchemes(t *testing.T) {
@@ -837,9 +851,8 @@ func TestSchemes(t *testing.T) {
 			shouldMatch: false,
 		},
 	}
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+
+	runTests(t, tests)
 }
 
 func TestMatcherFunc(t *testing.T) {
@@ -871,9 +884,7 @@ func TestMatcherFunc(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+	runTests(t, tests)
 }
 
 func TestBuildVarsFunc(t *testing.T) {
@@ -904,9 +915,7 @@ func TestBuildVarsFunc(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+	runTests(t, tests)
 }
 
 func TestSubRouter(t *testing.T) {
@@ -948,9 +957,7 @@ func TestSubRouter(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+	runTests(t, tests)
 }
 
 func TestNamedRoutes(t *testing.T) {
@@ -1043,9 +1050,7 @@ func TestStrictSlash(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		testRoute(t, test)
-	}
+	runTests(t, tests)
 }
 
 func TestWalkSingleDepth(t *testing.T) {
@@ -1153,11 +1158,11 @@ func testRoute(t *testing.T, test routeTest) {
 	var match RouteMatch
 	ok := route.Match(request, &match)
 	if ok != shouldMatch {
-		msg := "Should match"
+		msg := "should match"
 		if !shouldMatch {
-			msg = "Should not match"
+			msg = "should not match"
 		}
-		t.Errorf("(%v) %v:\nRoute: %#v\nRequest: %#v\nVars: %v\n", test.title, msg, route, request, vars)
+		t.Errorf("%q, %s:\nRoute: %#v\nURL: %#v\nHeaders: %v\nVars: %v\n", test.title, msg, route, request.URL, request.Header, vars)
 		return
 	}
 	if shouldMatch {

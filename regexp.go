@@ -14,6 +14,64 @@ import (
 	"strings"
 )
 
+const (
+	defaultRoutePattern = "[^/]+"
+	defaultQueryPattern = "[^?&]*"
+	defaultHostPattern  = "[^.]+"
+)
+
+func newRouteRegexp(tpl string, matchHost, matchPrefix, strictSlash bool) (*routeRegexp, error) {
+	if matchHost {
+		return newHostRegexp(tpl)
+	} else if matchPrefix {
+		return newPrefixRegexp(tpl)
+	} else {
+		return newPathRegexp(tpl, strictSlash)
+	}
+}
+
+func newQueryRegexp(key, pattern string) (*routeRegexp, error) {
+	if pattern == "" {
+		template := key + "=.*"
+		r, err := regexp.Compile(template)
+		if err != nil {
+			return nil, err
+		}
+		return &routeRegexp{
+			template:   template,
+			regexp:     r,
+			reverse:    template,
+			varsN:      make([]string, 0),
+			varsR:      make([]*regexp.Regexp, 0),
+			matchQuery: true,
+		}, nil
+	}
+	tpl := key + "=" + pattern
+	r, err := newRouteRegexpInt(defaultQueryPattern, tpl, false, false)
+	if err != nil {
+		return nil, err
+	}
+	r.matchQuery = true
+	return r, nil
+}
+
+func newHostRegexp(tpl string) (*routeRegexp, error) {
+	r, err := newRouteRegexpInt(defaultHostPattern, tpl, false, false)
+	if err != nil {
+		return nil, err
+	}
+	r.matchHost = true
+	return r, nil
+}
+
+func newPrefixRegexp(tpl string) (*routeRegexp, error) {
+	return newRouteRegexpInt(defaultRoutePattern, tpl, true, false)
+}
+
+func newPathRegexp(tpl string, strictSlash bool) (*routeRegexp, error) {
+	return newRouteRegexpInt(defaultRoutePattern, tpl, false, strictSlash)
+}
+
 // newRouteRegexp parses a route template and returns a routeRegexp,
 // used to match a host, a path or a query string.
 //
@@ -24,7 +82,7 @@ import (
 // Previously we accepted only Python-like identifiers for variable
 // names ([a-zA-Z_][a-zA-Z0-9_]*), but currently the only restriction is that
 // name and pattern can't be empty, and names can't contain a colon.
-func newRouteRegexp(tpl string, matchHost, matchPrefix, matchQuery, strictSlash bool) (*routeRegexp, error) {
+func newRouteRegexpInt(defaultPattern, tpl string, matchPrefix, strictSlash bool) (*routeRegexp, error) {
 	// Check if it is well-formed.
 	idxs, errBraces := braceIndices(tpl)
 	if errBraces != nil {
@@ -32,18 +90,6 @@ func newRouteRegexp(tpl string, matchHost, matchPrefix, matchQuery, strictSlash 
 	}
 	// Backup the original.
 	template := tpl
-	// Now let's parse it.
-	defaultPattern := "[^/]+"
-	if matchQuery {
-		defaultPattern = "[^?&]*"
-	} else if matchHost {
-		defaultPattern = "[^.]+"
-		matchPrefix = false
-	}
-	// Only match strict slash if not matching
-	if matchPrefix || matchHost || matchQuery {
-		strictSlash = false
-	}
 	// Set a flag for strictSlash.
 	endSlash := false
 	if strictSlash && strings.HasSuffix(tpl, "/") {
@@ -52,8 +98,7 @@ func newRouteRegexp(tpl string, matchHost, matchPrefix, matchQuery, strictSlash 
 	}
 	varsN := make([]string, len(idxs)/2)
 	varsR := make([]*regexp.Regexp, len(idxs)/2)
-	pattern := bytes.NewBufferString("")
-	pattern.WriteByte('^')
+	pattern := bytes.NewBufferString("^")
 	reverse := bytes.NewBufferString("")
 	var end int
 	var err error
@@ -91,12 +136,6 @@ func newRouteRegexp(tpl string, matchHost, matchPrefix, matchQuery, strictSlash 
 	if strictSlash {
 		pattern.WriteString("[/]?")
 	}
-	if matchQuery {
-		// Add the default pattern if the query value is empty
-		if queryVal := strings.SplitN(template, "=", 2)[1]; queryVal == "" {
-			pattern.WriteString(defaultPattern)
-		}
-	}
 	if !matchPrefix {
 		pattern.WriteByte('$')
 	}
@@ -112,8 +151,6 @@ func newRouteRegexp(tpl string, matchHost, matchPrefix, matchQuery, strictSlash 
 	// Done!
 	return &routeRegexp{
 		template:    template,
-		matchHost:   matchHost,
-		matchQuery:  matchQuery,
 		strictSlash: strictSlash,
 		regexp:      reg,
 		reverse:     reverse.String(),
