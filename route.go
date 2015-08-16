@@ -138,12 +138,12 @@ func (r *Route) addMatcher(m matcher) *Route {
 }
 
 // addRegexpMatcher adds a host or path matcher and builder to a route.
-func (r *Route) addRegexpMatcher(tpl string, matchHost, matchPrefix, matchQuery bool) error {
+func (r *Route) addRegexpMatcher(tpl string, matchHost, matchPrefix bool) error {
 	if r.err != nil {
 		return r.err
 	}
 	r.regexp = r.getRegexpGroup()
-	if !matchHost && !matchQuery {
+	if !matchHost {
 		if len(tpl) == 0 || tpl[0] != '/' {
 			return fmt.Errorf("mux: path must start with a slash, got %q", tpl)
 		}
@@ -269,7 +269,7 @@ func (r *Route) HeadersRegexp(pairs ...string) *Route {
 // Variable names must be unique in a given route. They can be retrieved
 // calling mux.Vars(request).
 func (r *Route) Host(tpl string) *Route {
-	r.err = r.addRegexpMatcher(tpl, true, false, false)
+	r.err = r.addRegexpMatcher(tpl, true, false)
 	return r
 }
 
@@ -328,7 +328,7 @@ func (r *Route) Methods(methods ...string) *Route {
 // Variable names must be unique in a given route. They can be retrieved
 // calling mux.Vars(request).
 func (r *Route) Path(tpl string) *Route {
-	r.err = r.addRegexpMatcher(tpl, false, false, false)
+	r.err = r.addRegexpMatcher(tpl, false, false)
 	return r
 }
 
@@ -344,7 +344,7 @@ func (r *Route) Path(tpl string) *Route {
 // Also note that the setting of Router.StrictSlash() has no effect on routes
 // with a PathPrefix matcher.
 func (r *Route) PathPrefix(tpl string) *Route {
-	r.err = r.addRegexpMatcher(tpl, false, true, false)
+	r.err = r.addRegexpMatcher(tpl, false, true)
 	return r
 }
 
