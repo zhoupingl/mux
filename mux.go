@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"log"
 )
 
 var (
@@ -116,6 +117,12 @@ func (r *Router) Match(req *http.Request, match *RouteMatch) bool {
 // When there is a match, the route variables can be retrieved calling
 // mux.Vars(request).
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Println(err)
+		}
+	}()
+
 	if !r.skipClean {
 		path := req.URL.Path
 		if r.useEncodedPath {
